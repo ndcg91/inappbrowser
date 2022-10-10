@@ -18,9 +18,7 @@
  */
 #import <sys/utsname.h>
 #import "CDVInAppBrowserNavigationController.h"
- 
-#define STATUSBAR_HEIGHT 34.0
- 
+
 @implementation CDVInAppBrowserNavigationController : UINavigationController
  
 - (void) dismissViewControllerAnimated:(BOOL)flag completion:(void (^)(void))completion {
@@ -30,32 +28,7 @@
 }
  
 - (void) viewDidLoad {
- 
- CGRect statusBarFrame = [self invertFrameIfNeeded:[UIApplication sharedApplication].statusBarFrame];
- struct utsname systemInfo;
- uname(&systemInfo);
- NSString* iphoneModel = [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];
- if (
- [iphoneModel containsString:@"iPhone10,3"] || 
- [iphoneModel containsString:@"iPhone10,6"] || 
- [iphoneModel containsString:@"iPhone11"] ||
- [iphoneModel containsString:@"iPhone12,1"] || 
- [iphoneModel containsString:@"iPhone12,3"] || 
- [iphoneModel containsString:@"iPhone12,5"] ||
- [iphoneModel containsString:@"iPhone13"]
- ) {
- statusBarFrame.size.height = STATUSBAR_HEIGHT;
- } else {
- statusBarFrame.size.height = 20.0;
- }
- // simplified from: http://stackoverflow.com/a/25669695/219684
- 
- UIToolbar* bgToolbar = [[UIToolbar alloc] initWithFrame:statusBarFrame];
- bgToolbar.barStyle = UIBarStyleDefault;
- [bgToolbar setAutoresizingMask:UIViewAutoresizingFlexibleWidth];
- [self.view addSubview:bgToolbar];
- 
- [super viewDidLoad];
+    [super viewDidLoad];
 }
  
 - (CGRect) invertFrameIfNeeded:(CGRect)rect {
@@ -77,8 +50,8 @@
  }
  return YES;
 }
- 
-- (NSUInteger)supportedInterfaceOrientations
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
 {
  if ((self.orientationDelegate != nil) && [self.orientationDelegate respondsToSelector:@selector(supportedInterfaceOrientations)]) {
  return [self.orientationDelegate supportedInterfaceOrientations];
@@ -86,15 +59,5 @@
  
  return 1 << UIInterfaceOrientationPortrait;
 }
- 
-- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation
-{
- if ((self.orientationDelegate != nil) && [self.orientationDelegate respondsToSelector:@selector(shouldAutorotateToInterfaceOrientation:)]) {
- //return [self.orientationDelegate shouldAutorotateToInterfaceOrientation:interfaceOrientation];
- return NO;
- }
- 
- return YES;
-}
- 
+
 @end
