@@ -85,6 +85,9 @@ import java.util.List;
 import java.util.HashMap;
 import java.util.StringTokenizer;
 
+import android.content.MutableContextWrapper;
+import android.view.ViewGroup;
+
 @SuppressLint("SetJavaScriptEnabled")
 public class InAppBrowser extends CordovaPlugin {
 
@@ -117,10 +120,15 @@ public class InAppBrowser extends CordovaPlugin {
     private static final String FOOTER = "footer";
     private static final String FOOTER_COLOR = "footercolor";
     private static final String BEFORELOAD = "beforeload";
+    private static final String BOTTOM = "BOTTOM";
+    private static final String TOP = "TOP";
 
     private static final List customizableOptions = Arrays.asList(CLOSE_BUTTON_CAPTION, TOOLBAR_COLOR, NAVIGATION_COLOR, CLOSE_BUTTON_COLOR, FOOTER_COLOR);
 
     private InAppBrowserDialog dialog;
+    private HashMap<String, WebView> inAppWebViewArray = new HashMap<String, WebView>();
+    private HashMap<String, Boolean> inAppWebViewArrayNeedClearHistory = new HashMap<String, Boolean>();
+    private boolean recreateInappWebView = true;
     private WebView inAppWebView;
     private EditText edittext;
     private CallbackContext callbackContext;
@@ -149,7 +157,14 @@ public class InAppBrowser extends CordovaPlugin {
     private String beforeload = "";
     private String[] allowedSchemes;
     private InAppBrowserClient currentClient;
-
+    private String name = "";
+    private boolean redirect  = false;
+    private int top_px = 0;
+    private int bottom_px = 0;
+    private String gravity = "CENTER";
+    private boolean allowNavigation = true;
+    private boolean allowNavigationExternal = false;
+    private String url;
     /**
      * Executes the request and returns PluginResult.
      *
@@ -159,15 +174,35 @@ public class InAppBrowser extends CordovaPlugin {
      * @return A PluginResult object with a status and message.
      */
     public boolean execute(String action, CordovaArgs args, final CallbackContext callbackContext) throws JSONException {
+        //LOG.d(LOG_TAG, "Ejecuta 0 execute action: " + action);
         if (action.equals("open")) {
             this.callbackContext = callbackContext;
-            final String url = args.getString(0);
-            String t = args.optString(1);
+            if (this.callbackContext == null){
+               LOG.d(LOG_TAG, "callbackcontext is null");
+            }
+            
+            name = args.getString(0);
+            LOG.d(LOG_TAG, "name = " + name);
+            url = args.getString(1);
+            LOG.d(LOG_TAG, "url = " + url);
+            redirect = args.getBoolean(2);
+            LOG.d(LOG_TAG, "redirect = " + redirect);
+            top_px = args.getInt(3);
+            LOG.d(LOG_TAG, "top_px = " + top_px);
+            bottom_px = args.getInt(4);
+            LOG.d(LOG_TAG, "bottom_px = " + bottom_px);
+            gravity = args.getString(5);
+            LOG.d(LOG_TAG, "gravity = " + gravity);
+            allowNavigation = args.getBoolean(8);
+            allowNavigationExternal = args.getBoolean(9);
+            String t = args.optString(6);
+            LOG.d(LOG_TAG, "t = " + t);
             if (t == null || t.equals("") || t.equals(NULL)) {
                 t = SELF;
             }
             final String target = t;
-            final HashMap<String, String> features = parseFeature(args.optString(2));
+            LOG.e(LOG_TAG, "type " + t);
+            final HashMap<String, String> features = parseFeature(args.optString(7));
 
             LOG.d(LOG_TAG, "target = " + target);
 
@@ -216,6 +251,7 @@ public class InAppBrowser extends CordovaPlugin {
                         // load in webview
                         if (Boolean.TRUE.equals(shouldAllowNavigation)) {
                             LOG.d(LOG_TAG, "loading in webview");
+                            LOG.d(LOG_TAG, "entra shouldAllowNavigation" + url);
                             webView.loadUrl(url);
                         }
                         //Load the dialer
@@ -271,6 +307,7 @@ public class InAppBrowser extends CordovaPlugin {
                     } else {
                         ((InAppBrowserClient)inAppWebView.getWebViewClient()).waitForBeforeload = false;
                     }
+                    LOG.d(LOG_TAG, "entra linea299" + url);
                     inAppWebView.loadUrl(url);
                 }
             });
@@ -333,7 +370,34 @@ public class InAppBrowser extends CordovaPlugin {
             });
             PluginResult pluginResult = new PluginResult(PluginResult.Status.OK);
             pluginResult.setKeepCallback(true);
+            if(this.callbackContext==null){
+               LOG.e(LOG_TAG, "callbackContext is null");
+            }
+            if(pluginResult==null){
+               LOG.e(LOG_TAG, "pluginResult is null");
+            }
             this.callbackContext.sendPluginResult(pluginResult);
+        }
+        else if (action.equals("refresh")){
+            name = args.getString(0);
+            url = args.getString(1);
+            
+            // WebView
+            if (inAppWebViewArray.containsKey(name)) {
+                inAppWebView = inAppWebViewArray.get(name);
+                try {
+                    this.cordova.getActivity().runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            inAppWebView.loadUrl(url);
+                        }
+                    });
+                }
+                catch(Exception e) {
+                    //  Block of code to handle errors
+                    LOG.d(LOG_TAG, "Exepcion2... " + e );
+                }
+            } 
         }
         else {
             return false;
@@ -524,6 +588,7 @@ public class InAppBrowser extends CordovaPlugin {
      * Closes the dialog
      */
     public void closeDialog() {
+        String browserName = this.name; 
         this.cordova.getActivity().runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -534,23 +599,27 @@ public class InAppBrowser extends CordovaPlugin {
                     return;
                 }
 
-                childView.setWebViewClient(new WebViewClient() {
+                /*childView.setWebViewClient(new WebViewClient() {
                     // NB: wait for about:blank before dismissing
                     public void onPageFinished(WebView view, String url) {
+                        */
                         if (dialog != null) {
+                            LOG.d(LOG_TAG, "onPageFinished closeDialog");
                             dialog.dismiss();
                             dialog = null;
-                        }
+                       }
+                       /*
                     }
                 });
                 // NB: From SDK 19: "If you call methods on WebView from any thread
                 // other than your app's UI thread, it can cause unexpected results."
                 // http://developer.android.com/guide/webapps/migrating.html#Threads
-                childView.loadUrl("about:blank");
+                childView.loadUrl("about:blank");*/
 
                 try {
                     JSONObject obj = new JSONObject();
                     obj.put("type", EXIT_EVENT);
+                    obj.put("name", browserName);
                     sendUpdate(obj, false);
                 } catch (JSONException ex) {
                     LOG.d(LOG_TAG, "Should never happen");
@@ -601,7 +670,7 @@ public class InAppBrowser extends CordovaPlugin {
     private void navigate(String url) {
         InputMethodManager imm = (InputMethodManager)this.cordova.getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
         imm.hideSoftInputFromWindow(edittext.getWindowToken(), 0);
-
+        LOG.d(LOG_TAG, "entra navigate" + url);
         if (!url.startsWith("http") && !url.startsWith("file:")) {
             this.inAppWebView.loadUrl("http://" + url);
         } else {
@@ -662,6 +731,7 @@ public class InAppBrowser extends CordovaPlugin {
             } else {
                 hadwareBackButton = DEFAULT_HARDWARE_BACK;
             }
+
             String mediaPlayback = features.get(MEDIA_PLAYBACK_REQUIRES_USER_ACTION);
             if (mediaPlayback != null) {
                 mediaPlaybackRequiresUserGesture = mediaPlayback.equals("yes") ? true : false;
@@ -784,12 +854,10 @@ public class InAppBrowser extends CordovaPlugin {
 
             @SuppressLint("NewApi")
             public void run() {
-
                 // CB-6702 InAppBrowser hangs when opening more than one instance
                 if (dialog != null) {
                     dialog.dismiss();
                 };
-
                 // Let's create the main dialog
                 dialog = new InAppBrowserDialog(cordova.getActivity(), android.R.style.Theme_NoTitleBar);
                 dialog.getWindow().getAttributes().windowAnimations = android.R.style.Animation_Dialog;
@@ -926,9 +994,30 @@ public class InAppBrowser extends CordovaPlugin {
                 View footerClose = createCloseButton(7);
                 footer.addView(footerClose);
 
-
                 // WebView
-                inAppWebView = new WebView(cordova.getActivity());
+                if (inAppWebViewArray.containsKey(name)) {
+                    inAppWebView = inAppWebViewArray.get(name);
+                    
+                    // Mark as "need clear history"
+                    inAppWebViewArrayNeedClearHistory.put(name, true);
+                    
+                    ((ViewGroup) inAppWebView.getParent()).removeView(inAppWebView);
+                    if (inAppWebView.getContext() instanceof MutableContextWrapper) {
+                        ((MutableContextWrapper) inAppWebView.getContext()).setBaseContext(cordova.getActivity());
+                        LOG.d(LOG_TAG, "Hace el update del context");
+
+                    }
+                    recreateInappWebView = false;
+
+                } else {
+                    inAppWebView = new WebView(new MutableContextWrapper(cordova.getActivity()));
+                    recreateInappWebView = true;
+
+                    // not clear history
+                    inAppWebViewArrayNeedClearHistory.put(name, false);
+                }
+
+               
                 inAppWebView.setLayoutParams(new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
                 inAppWebView.setId(Integer.valueOf(6));
                 // File Chooser Implemented ChromeClient
@@ -974,7 +1063,7 @@ public class InAppBrowser extends CordovaPlugin {
                     }
 
                 });
-                currentClient = new InAppBrowserClient(thatWebView, edittext, beforeload);
+                currentClient = new InAppBrowserClient(thatWebView, edittext, beforeload, name);
                 inAppWebView.setWebViewClient(currentClient);
                 WebSettings settings = inAppWebView.getSettings();
                 settings.setJavaScriptEnabled(true);
@@ -1033,7 +1122,10 @@ public class InAppBrowser extends CordovaPlugin {
                     CookieManager.getInstance().setAcceptThirdPartyCookies(inAppWebView,true);
                 }
 
-                inAppWebView.loadUrl(url);
+                if (recreateInappWebView || redirect) {
+                  LOG.d(LOG_TAG, "redirect");
+                  inAppWebView.loadUrl(url);
+               }
                 inAppWebView.setId(Integer.valueOf(6));
                 inAppWebView.getSettings().setLoadWithOverviewMode(true);
                 inAppWebView.getSettings().setUseWideViewPort(useWideViewPort);
@@ -1069,21 +1161,46 @@ public class InAppBrowser extends CordovaPlugin {
                 lp.width = WindowManager.LayoutParams.MATCH_PARENT;
                 lp.height = WindowManager.LayoutParams.MATCH_PARENT;
 
+                lp.height = cordova.getActivity().getResources().getDisplayMetrics().heightPixels -  getStatusBarHeight() - dpToPixels(top_px + bottom_px);
+                LOG.d(LOG_TAG, "gravity" +  gravity);
+                if (TOP.equals(gravity)){
+                  LOG.d(LOG_TAG, "gravity" +  gravity);
+                  lp.gravity = Gravity.TOP;
+                }else if (BOTTOM.equals(gravity)){
+                  lp.gravity = Gravity.BOTTOM;
+                }else{
+                  lp.gravity = Gravity.CENTER;
+                }
+                lp.y = dpToPixels(bottom_px);
+                
+                LOG.d(LOG_TAG, "lp.height" +  lp.height);
                 if (dialog != null) {
                     dialog.setContentView(main);
-                    dialog.show();
+                    //dialog.show();
                     dialog.getWindow().setAttributes(lp);
+                    dialog.getWindow().setFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+                    dialog.getWindow().setFlags(LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                           LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH);
                 }
                 // the goal of openhidden is to load the url and not display it
                 // Show() needs to be called to cause the URL to be loaded
-                if (openWindowHidden && dialog != null) {
+                /*if (openWindowHidden && dialog != null) {
                     dialog.hide();
-                }
+                }*/
+                inAppWebViewArray.put(name,inAppWebView);
             }
         };
         this.cordova.getActivity().runOnUiThread(runnable);
         return "";
     }
+
+
+    public int getStatusBarHeight() {
+      Resources resources = cordova.getActivity().getApplicationContext().getResources();
+      int resourceId = resources.getIdentifier("status_bar_height", "dimen", "android");
+      return (resourceId > 0) ? resources.getDimensionPixelSize(resourceId) : 0;
+   }
 
     /**
      * Create a new plugin success result and send it back to JavaScript
@@ -1155,6 +1272,7 @@ public class InAppBrowser extends CordovaPlugin {
         CordovaWebView webView;
         String beforeload;
         boolean waitForBeforeload;
+        String name;
 
         /**
          * Constructor.
@@ -1162,11 +1280,12 @@ public class InAppBrowser extends CordovaPlugin {
          * @param webView
          * @param mEditText
          */
-        public InAppBrowserClient(CordovaWebView webView, EditText mEditText, String beforeload) {
+        public InAppBrowserClient(CordovaWebView webView, EditText mEditText, String beforeload, String name) {
             this.webView = webView;
             this.edittext = mEditText;
             this.beforeload = beforeload;
             this.waitForBeforeload = beforeload != null;
+            this.name = name;
         }
 
         /**
@@ -1211,119 +1330,130 @@ public class InAppBrowser extends CordovaPlugin {
             boolean override = false;
             boolean useBeforeload = false;
             String errorMessage = null;
+            LOG.e(LOG_TAG, "shouldOverrideUrlLoading");
+            if (allowNavigation){
+                LOG.e(LOG_TAG, "allowNavigation");
+               if (beforeload.equals("yes") && method == null) {
+                  useBeforeload = true;
+               } else if(beforeload.equals("yes")
+                     //TODO handle POST requests then this condition can be removed:
+                     && !method.equals("POST"))
+               {
+                  useBeforeload = true;
+               } else if(beforeload.equals("get") && (method == null || method.equals("GET"))) {
+                  useBeforeload = true;
+               } else if(beforeload.equals("post") && (method == null || method.equals("POST"))) {
+                  //TODO handle POST requests
+                  errorMessage = "beforeload doesn't yet support POST requests";
+               }
 
-            if (beforeload.equals("yes") && method == null) {
-                useBeforeload = true;
-            } else if(beforeload.equals("yes")
-                    //TODO handle POST requests then this condition can be removed:
-                    && !method.equals("POST"))
-            {
-                useBeforeload = true;
-            } else if(beforeload.equals("get") && (method == null || method.equals("GET"))) {
-                useBeforeload = true;
-            } else if(beforeload.equals("post") && (method == null || method.equals("POST"))) {
-                //TODO handle POST requests
-                errorMessage = "beforeload doesn't yet support POST requests";
-            }
+               // On first URL change, initiate JS callback. Only after the beforeload event, continue.
+               if (useBeforeload && this.waitForBeforeload) {
+                  if(sendBeforeLoad(url, method)) {
+                     return true;
+                  }
+               }
 
-            // On first URL change, initiate JS callback. Only after the beforeload event, continue.
-            if (useBeforeload && this.waitForBeforeload) {
-                if(sendBeforeLoad(url, method)) {
-                    return true;
-                }
-            }
+               if(errorMessage != null) {
+                  try {
+                     LOG.e(LOG_TAG, errorMessage);
+                     JSONObject obj = new JSONObject();
+                     obj.put("type", LOAD_ERROR_EVENT);
+                     obj.put("url", url);
+                     obj.put("code", -1);
+                     obj.put("message", errorMessage);
+                     sendUpdate(obj, true, PluginResult.Status.ERROR);
+                  } catch(Exception e) {
+                     LOG.e(LOG_TAG, "Error sending loaderror for " + url + ": " + e.toString());
+                  }
+               }
 
-            if(errorMessage != null) {
-                try {
-                    LOG.e(LOG_TAG, errorMessage);
-                    JSONObject obj = new JSONObject();
-                    obj.put("type", LOAD_ERROR_EVENT);
-                    obj.put("url", url);
-                    obj.put("code", -1);
-                    obj.put("message", errorMessage);
-                    sendUpdate(obj, true, PluginResult.Status.ERROR);
-                } catch(Exception e) {
-                    LOG.e(LOG_TAG, "Error sending loaderror for " + url + ": " + e.toString());
-                }
-            }
+               if (url.startsWith(WebView.SCHEME_TEL)) {
+                  try {
+                     Intent intent = new Intent(Intent.ACTION_DIAL);
+                     intent.setData(Uri.parse(url));
+                     cordova.getActivity().startActivity(intent);
+                     override = true;
+                  } catch (android.content.ActivityNotFoundException e) {
+                     LOG.e(LOG_TAG, "Error dialing " + url + ": " + e.toString());
+                  }
+               } else if (url.startsWith("geo:") || url.startsWith(WebView.SCHEME_MAILTO) || url.startsWith("market:") || url.startsWith("intent:")) {
+                  try {
+                     Intent intent = new Intent(Intent.ACTION_VIEW);
+                     intent.setData(Uri.parse(url));
+                     cordova.getActivity().startActivity(intent);
+                     override = true;
+                  } catch (android.content.ActivityNotFoundException e) {
+                     LOG.e(LOG_TAG, "Error with " + url + ": " + e.toString());
+                  }
+               }
+               // If sms:5551212?body=This is the message
+               else if (url.startsWith("sms:")) {
+                  try {
+                     Intent intent = new Intent(Intent.ACTION_VIEW);
 
-            if (url.startsWith(WebView.SCHEME_TEL)) {
-                try {
-                    Intent intent = new Intent(Intent.ACTION_DIAL);
-                    intent.setData(Uri.parse(url));
-                    cordova.getActivity().startActivity(intent);
-                    override = true;
-                } catch (android.content.ActivityNotFoundException e) {
-                    LOG.e(LOG_TAG, "Error dialing " + url + ": " + e.toString());
-                }
-            } else if (url.startsWith("geo:") || url.startsWith(WebView.SCHEME_MAILTO) || url.startsWith("market:") || url.startsWith("intent:")) {
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW);
-                    intent.setData(Uri.parse(url));
-                    cordova.getActivity().startActivity(intent);
-                    override = true;
-                } catch (android.content.ActivityNotFoundException e) {
-                    LOG.e(LOG_TAG, "Error with " + url + ": " + e.toString());
-                }
-            }
-            // If sms:5551212?body=This is the message
-            else if (url.startsWith("sms:")) {
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW);
+                     // Get address
+                     String address = null;
+                     int parmIndex = url.indexOf('?');
+                     if (parmIndex == -1) {
+                           address = url.substring(4);
+                     } else {
+                           address = url.substring(4, parmIndex);
 
-                    // Get address
-                    String address = null;
-                    int parmIndex = url.indexOf('?');
-                    if (parmIndex == -1) {
-                        address = url.substring(4);
-                    } else {
-                        address = url.substring(4, parmIndex);
+                           // If body, then set sms body
+                           Uri uri = Uri.parse(url);
+                           String query = uri.getQuery();
+                           if (query != null) {
+                              if (query.startsWith("body=")) {
+                                 intent.putExtra("sms_body", query.substring(5));
+                              }
+                           }
+                     }
+                     intent.setData(Uri.parse("sms:" + address));
+                     intent.putExtra("address", address);
+                     intent.setType("vnd.android-dir/mms-sms");
+                     cordova.getActivity().startActivity(intent);
+                     override = true;
+                  } catch (android.content.ActivityNotFoundException e) {
+                     LOG.e(LOG_TAG, "Error sending sms " + url + ":" + e.toString());
+                  }
+               }
+               // Test for whitelisted custom scheme names like mycoolapp:// or twitteroauthresponse:// (Twitter Oauth Response)
+               else if (!url.startsWith("http:") && !url.startsWith("https:") && url.matches("^[A-Za-z0-9+.-]*://.*?$")) {
+                  if (allowedSchemes == null) {
+                     String allowed = preferences.getString("AllowedSchemes", null);
+                     if(allowed != null) {
+                           allowedSchemes = allowed.split(",");
+                     }
+                  }
+                  if (allowedSchemes != null) {
+                     for (String scheme : allowedSchemes) {
+                           if (url.startsWith(scheme)) {
+                              try {
+                                 JSONObject obj = new JSONObject();
+                                 obj.put("type", "customscheme");
+                                 obj.put("url", url);
+                                 sendUpdate(obj, true);
+                                 override = true;
+                              } catch (JSONException ex) {
+                                 LOG.e(LOG_TAG, "Custom Scheme URI passed in has caused a JSON error.");
+                              }
+                           }
+                     }
+                  }
 
-                        // If body, then set sms body
-                        Uri uri = Uri.parse(url);
-                        String query = uri.getQuery();
-                        if (query != null) {
-                            if (query.startsWith("body=")) {
-                                intent.putExtra("sms_body", query.substring(5));
-                            }
-                        }
-                    }
-                    intent.setData(Uri.parse("sms:" + address));
-                    intent.putExtra("address", address);
-                    intent.setType("vnd.android-dir/mms-sms");
-                    cordova.getActivity().startActivity(intent);
-                    override = true;
-                } catch (android.content.ActivityNotFoundException e) {
-                    LOG.e(LOG_TAG, "Error sending sms " + url + ":" + e.toString());
-                }
-            }
-            // Test for whitelisted custom scheme names like mycoolapp:// or twitteroauthresponse:// (Twitter Oauth Response)
-            else if (!url.startsWith("http:") && !url.startsWith("https:") && url.matches("^[A-Za-z0-9+.-]*://.*?$")) {
-                if (allowedSchemes == null) {
-                    String allowed = preferences.getString("AllowedSchemes", null);
-                    if(allowed != null) {
-                        allowedSchemes = allowed.split(",");
-                    }
-                }
-                if (allowedSchemes != null) {
-                    for (String scheme : allowedSchemes) {
-                        if (url.startsWith(scheme)) {
-                            try {
-                                JSONObject obj = new JSONObject();
-                                obj.put("type", "customscheme");
-                                obj.put("url", url);
-                                sendUpdate(obj, true);
-                                override = true;
-                            } catch (JSONException ex) {
-                                LOG.e(LOG_TAG, "Custom Scheme URI passed in has caused a JSON error.");
-                            }
-                        }
-                    }
-                }
-            }
+               }
 
-            if (useBeforeload) {
-                this.waitForBeforeload = true;
+               if (useBeforeload) {
+                  this.waitForBeforeload = true;
+               }
+                if (allowNavigationExternal){
+                  LOG.e(LOG_TAG, "allowNavigationExternal");
+                  override = true;
+                  openExternal(url);
+                }
+            }else{
+               override = true;
             }
             return override;
         }
@@ -1406,6 +1536,7 @@ public class InAppBrowser extends CordovaPlugin {
                 JSONObject obj = new JSONObject();
                 obj.put("type", LOAD_START_EVENT);
                 obj.put("url", newloc);
+                obj.put("name", this.name);
                 sendUpdate(obj, true);
             } catch (JSONException ex) {
                 LOG.e(LOG_TAG, "URI passed in has caused a JSON error.");
@@ -1413,8 +1544,18 @@ public class InAppBrowser extends CordovaPlugin {
         }
 
         public void onPageFinished(WebView view, String url) {
-            super.onPageFinished(view, url);
+            if (inAppWebViewArrayNeedClearHistory.containsKey(name)) {
+                if(inAppWebViewArrayNeedClearHistory.get(name)){
+                    LOG.d(LOG_TAG, "History remove");
+                    view.clearHistory();
 
+                    // already cleared
+                    inAppWebViewArrayNeedClearHistory.put(name, false);
+                }
+            }
+            
+            super.onPageFinished(view, url);
+            LOG.d(LOG_TAG, "On Page Finished");
             // Set the namespace for postMessage()
             if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR1) {
                 injectDeferredObject("window.webkit={messageHandlers:{cordova_iab:cordova_iab}}", null);
@@ -1435,7 +1576,7 @@ public class InAppBrowser extends CordovaPlugin {
                 JSONObject obj = new JSONObject();
                 obj.put("type", LOAD_STOP_EVENT);
                 obj.put("url", url);
-
+                obj.put("name", this.name);
                 sendUpdate(obj, true);
             } catch (JSONException ex) {
                 LOG.d(LOG_TAG, "Should never happen");

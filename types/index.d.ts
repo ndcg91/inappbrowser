@@ -6,7 +6,7 @@
 // Copyright (c) Microsoft Open Technologies Inc
 // Licensed under the MIT license.
 // TypeScript Version: 2.3
-type channel = "loadstart" | "loadstop" | "loaderror" | "exit" | "message";
+type channel = "loadstart" | "loadstop" | "loaderror" | "exit" | "message" | 'tabpressed';
 
 interface Window {
     /**
@@ -29,6 +29,7 @@ interface InAppBrowser extends Window {
     onloadstop(type: InAppBrowserEvent): void;
     onloaderror(type: InAppBrowserEvent): void;
     onexit(type: InAppBrowserEvent): void;
+    ontabpressed: (type: InAppBrowserEvent) => void;
     // addEventListener overloads
     /**
      * Adds a listener for an event from the InAppBrowser.
@@ -96,6 +97,9 @@ interface InAppBrowserEvent extends Event {
     code: number;
     /** the error message, only in the case of loaderror. */
     message: string;
+    index: string;
+    /** tab name */
+    name: string;
 }
 
 interface Cordova {
