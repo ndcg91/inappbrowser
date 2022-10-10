@@ -41,6 +41,7 @@
 
 + (id) getInstance;
 - (void)open:(CDVInvokedUrlCommand*)command;
+- (void)refresh:(CDVInvokedUrlCommand*)command;
 - (void)close:(CDVInvokedUrlCommand*)command;
 - (void)injectScriptCode:(CDVInvokedUrlCommand*)command;
 - (void)show:(CDVInvokedUrlCommand*)command;
@@ -49,7 +50,7 @@
 
 @end
 
-@interface CDVWKInAppBrowserViewController : UIViewController <CDVScreenOrientationDelegate,WKNavigationDelegate,WKUIDelegate,WKScriptMessageHandler,UIAdaptivePresentationControllerDelegate>{
+@interface CDVWKInAppBrowserViewController : UIViewController <CDVScreenOrientationDelegate,WKNavigationDelegate,WKUIDelegate,WKScriptMessageHandler>{
     @private
     CDVInAppBrowserOptions *_browserOptions;
     NSDictionary *_settings;
@@ -76,5 +77,8 @@
 - (void)setCloseButtonTitle:(NSString*)title : (NSString*) colorString : (int) buttonIndex;
 
 - (id)initWithBrowserOptions: (CDVInAppBrowserOptions*) browserOptions andSettings:(NSDictionary*) settings;
+
+-(void) remplaceWebView: (WKWebView*) webview; 
+-(void) createWKWebView; 
 
 @end

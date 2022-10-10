@@ -17,9 +17,15 @@
  * specific language governing permissions and limitations
  * under the License.
  *
- */
+*/
 
 (function () {
+    // special patch to correctly work on Ripple emulator (CB-9760)
+    if (window.parent && !!window.parent.ripple) { // https://gist.github.com/triceam/4658021
+        module.exports = window.open.bind(window); // fallback to default window.open behaviour
+        return;
+    }
+
     var exec = require('cordova/exec');
     var channel = require('cordova/channel');
     var modulemapper = require('cordova/modulemapper');
@@ -27,21 +33,24 @@
 
     function InAppBrowser () {
         this.channels = {
-            beforeload: channel.create('beforeload'),
-            loadstart: channel.create('loadstart'),
-            loadstop: channel.create('loadstop'),
-            loaderror: channel.create('loaderror'),
-            exit: channel.create('exit'),
-            customscheme: channel.create('customscheme'),
-            message: channel.create('message')
+            'beforeload': channel.create('beforeload'),
+            'loadstart': channel.create('loadstart'),
+            'loadstop': channel.create('loadstop'),
+            'loaderror': channel.create('loaderror'),
+            'exit': channel.create('exit'),
+            'customscheme': channel.create('customscheme'),
+            'message': channel.create('message'),
+            'tabpressed' : channel.create('tabpressed')
         };
     }
 
     InAppBrowser.prototype = {
         _eventHandler: function (event) {
-            if (event && event.type in this.channels) {
+            if (event && (event.type in this.channels)) {
                 if (event.type === 'beforeload') {
                     this.channels[event.type].fire(event, this._loadAfterBeforeload);
+                } else if (event.type === 'loaderror' && event.code === -999) {
+                    //NSURLErrorDomain
                 } else {
                     this.channels[event.type].fire(event);
                 }
@@ -92,28 +101,53 @@
         }
     };
 
-    module.exports = function (strUrl, strWindowName, strWindowFeatures, callbacks) {
-        // Don't catch calls that write to existing frames (e.g. named iframes).
-        if (window.frames && window.frames[strWindowName]) {
-            var origOpenFunc = modulemapper.getOriginalSymbol(window, 'open');
-            return origOpenFunc.apply(window, arguments);
+    /**
+     * 
+     * "strWindowFeatures" has: 
+     * 
+     * "location=no,toolbar=no,hardwareback=yes,transitionstyle=crossdissolve,clearcache=no,zoom=no,allowInlineMediaPlayback=yes,usewkwebview=yes"
+     */
+    module.exports = function (name,strUrl,redirect,top_px,bottom_px,gravity,strWindowName, strWindowFeatures,allowNavigation,allowNavigationExternal,callbacks) {
+        if (redirect === undefined ||
+            top_px === undefined ||
+            bottom_px === undefined ||
+            gravity === undefined ||
+            allowNavigation === undefined ||
+            allowNavigationExternal === undefined){
+            
+            strUrl = urlutil.makeAbsolute(strUrl);
+            var iab = new InAppBrowser();
+    
+            var cb = function (eventname) {
+                iab._eventHandler(eventname);
+            };
+    
+            exec(cb, cb, 'InAppBrowser', 'refresh', [name,strUrl]);
+            return iab;
         }
+        else { 
+            // Don't catch calls that write to existing frames (e.g. named iframes).
+            if (window.frames && window.frames[strWindowName]) {
+                var origOpenFunc = modulemapper.getOriginalSymbol(window, 'open');
+                return origOpenFunc.apply(window, arguments);
+            }
 
-        strUrl = urlutil.makeAbsolute(strUrl);
-        var iab = new InAppBrowser();
+            strUrl = urlutil.makeAbsolute(strUrl);
+            var iab = new InAppBrowser();
 
-        callbacks = callbacks || {};
-        for (var callbackName in callbacks) {
-            iab.addEventListener(callbackName, callbacks[callbackName]);
+            callbacks = callbacks || {};
+            for (var callbackName in callbacks) {
+                iab.addEventListener(callbackName, callbacks[callbackName]);
+            }
+
+            var cb = function (eventname) {
+                iab._eventHandler(eventname);
+            };
+
+            strWindowFeatures = strWindowFeatures || '';
+            
+            exec(cb, cb, 'InAppBrowser', 'open', [name,strUrl,redirect,top_px,bottom_px,gravity,strWindowName, strWindowFeatures,allowNavigation,allowNavigationExternal]);
+            return iab;
         }
-
-        var cb = function (eventname) {
-            iab._eventHandler(eventname);
-        };
-
-        strWindowFeatures = strWindowFeatures || '';
-
-        exec(cb, cb, 'InAppBrowser', 'open', [strUrl, strWindowName, strWindowFeatures]);
-        return iab;
     };
 })();

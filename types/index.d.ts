@@ -6,14 +6,9 @@
 // Copyright (c) Microsoft Open Technologies Inc
 // Licensed under the MIT license.
 // TypeScript Version: 2.3
-type channel = "loadstart" | "loadstop" | "loaderror" | "exit" | "message" | "customscheme";
+type channel = "loadstart" | "loadstop" | "loaderror" | "exit" | "message" | 'tabpressed';
 
-/**
- * The object returned from a call to cordova.InAppBrowser.open.
- * NOTE: The InAppBrowser window behaves like a standard web browser, and can't access Cordova APIs.
- */
-interface InAppBrowser {
-
+interface Window {
     /**
      * Opens a URL in a new InAppBrowser instance, the current browser instance, or the system browser.
      * @param  url     The URL to load.
@@ -23,11 +18,18 @@ interface InAppBrowser {
      *                 name/value pairs must be separated by a comma. Feature names are case insensitive.
      */
     open(url: string, target?: string, options?: string): InAppBrowser;
+}
 
+/**
+ * The object returned from a call to window.open.
+ * NOTE: The InAppBrowser window behaves like a standard web browser, and can't access Cordova APIs.
+ */
+interface InAppBrowser extends Window {
     onloadstart(type: Event): void;
     onloadstop(type: InAppBrowserEvent): void;
     onloaderror(type: InAppBrowserEvent): void;
     onexit(type: InAppBrowserEvent): void;
+    ontabpressed: (type: InAppBrowserEvent) => void;
     // addEventListener overloads
     /**
      * Adds a listener for an event from the InAppBrowser.
@@ -39,13 +41,6 @@ interface InAppBrowser {
      *                  passed an InAppBrowserEvent object as a parameter.
      */
     addEventListener(type: channel, callback: InAppBrowserEventListenerOrEventListenerObject): void;
-    /**
-     * Adds a listener for an event from the InAppBrowser.
-     * @param type      any custom event that might occur.
-     * @param callback  the function that executes when the event fires. The function is
-     *                  passed an InAppBrowserEvent object as a parameter.
-     */
-    addEventListener(type: string, callback: InAppBrowserEventListenerOrEventListenerObject): void;
     // removeEventListener overloads
     /**
      * Removes a listener for an event from the InAppBrowser.
@@ -102,6 +97,9 @@ interface InAppBrowserEvent extends Event {
     code: number;
     /** the error message, only in the case of loaderror. */
     message: string;
+    index: string;
+    /** tab name */
+    name: string;
 }
 
 interface Cordova {

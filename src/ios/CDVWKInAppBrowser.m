@@ -1,3 +1,4 @@
+
 /*
  Licensed to the Apache Software Foundation (ASF) under one
  or more contributor license agreements.  See the NOTICE file
@@ -19,10 +20,8 @@
 
 #import "CDVWKInAppBrowser.h"
 
-#if __has_include(<Cordova/CDVWebViewProcessPoolFactory.h>) // Cordova-iOS >=6
-  #import <Cordova/CDVWebViewProcessPoolFactory.h>
-#elif __has_include("CDVWKProcessPoolFactory.h") // Cordova-iOS <6 with WKWebView plugin
-  #import "CDVWKProcessPoolFactory.h"
+#if __has_include("CDVWKProcessPoolFactory.h")
+#import "CDVWKProcessPoolFactory.h"
 #endif
 
 #import <Cordova/CDVPluginResult.h>
@@ -33,17 +32,29 @@
 
 #define    kInAppBrowserToolbarBarPositionBottom @"bottom"
 #define    kInAppBrowserToolbarBarPositionTop @"top"
-
 #define    IAB_BRIDGE_NAME @"cordova_iab"
 
 #define    TOOLBAR_HEIGHT 44.0
+#define    STATUSBAR_HEIGHT 20.0
 #define    LOCATIONBAR_HEIGHT 21.0
 #define    FOOTER_HEIGHT ((TOOLBAR_HEIGHT) + (LOCATIONBAR_HEIGHT))
+
+NSNumber* statusBarHeight;
+NSNumber* top_px;
+NSNumber* bottom_px;
+NSString* gravity;
+id allowNavigation;
+id  allowNavigationExternal;
+NSString* name;
+id redirect;
+NSString* urlParam;
 
 #pragma mark CDVWKInAppBrowser
 
 @interface CDVWKInAppBrowser () {
     NSInteger _previousStatusBarStyle;
+    NSMutableDictionary *viewArray;
+    WKWebView *webViewSaved;
 }
 @end
 
@@ -62,6 +73,7 @@ static CDVWKInAppBrowser* instance = nil;
     _callbackIdPattern = nil;
     _beforeload = @"";
     _waitForBeforeload = NO;
+    viewArray = [[NSMutableDictionary alloc]init];
 }
 
 - (void)onReset
@@ -93,15 +105,27 @@ static CDVWKInAppBrowser* instance = nil;
 {
     CDVPluginResult* pluginResult;
     
-    NSString* url = [command argumentAtIndex:0];
-    NSString* target = [command argumentAtIndex:1 withDefault:kInAppBrowserTargetSelf];
-    NSString* options = [command argumentAtIndex:2 withDefault:@"" andClass:[NSString class]];
+    name = [command argumentAtIndex:0];
+    urlParam = [command argumentAtIndex:1];
+    redirect = [command argumentAtIndex:2];
+    NSLog(@"es el valor del redirect");
+    if([redirect boolValue]) {
+        
+        NSLog(@"es true el valor");
+    }
+    NSString* target = [command argumentAtIndex:6 withDefault:kInAppBrowserTargetSelf];
+    NSString* options = [command argumentAtIndex:7 withDefault:@"" andClass:[NSString class]];
+    top_px = [command argumentAtIndex:3];
+    bottom_px = [command argumentAtIndex:4];
+    gravity = [command argumentAtIndex:5];
+    allowNavigation = [command argumentAtIndex:8];
+    allowNavigationExternal = [command argumentAtIndex:9];
     
     self.callbackId = command.callbackId;
     
-    if (url != nil) {
+    if (urlParam != nil) {
         NSURL* baseUrl = [self.webViewEngine URL];
-        NSURL* absoluteUrl = [[NSURL URLWithString:url relativeToURL:baseUrl] absoluteURL];
+        NSURL* absoluteUrl = [[NSURL URLWithString:urlParam relativeToURL:baseUrl] absoluteURL];
         
         if ([self isSystemUrl:absoluteUrl]) {
             target = kInAppBrowserTargetSystem;
@@ -115,6 +139,35 @@ static CDVWKInAppBrowser* instance = nil;
             [self openInInAppBrowser:absoluteUrl withOptions:options];
         }
         
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
+    } else {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"incorrect number of arguments"];
+    }
+    
+    [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+- (void)refresh:(CDVInvokedUrlCommand*)command
+{
+    //NSLog(@"init function REFRESH");
+    CDVPluginResult* pluginResult;
+    
+    name = [command argumentAtIndex:0];
+    urlParam = [command argumentAtIndex:1];
+
+    if (urlParam != nil) {
+        NSURL* baseUrl = [self.webViewEngine URL];
+        NSURL* absoluteUrl = [[NSURL URLWithString:urlParam relativeToURL:baseUrl] absoluteURL];
+        
+        //get the value for webview saved
+        webViewSaved = [viewArray objectForKey:name];
+
+        NSURLRequest* request = [NSURLRequest requestWithURL:absoluteUrl];
+        
+        //NSLog(@"loadRequest with new url");
+        [webViewSaved loadRequest:request];
+
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
     } else {
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"incorrect number of arguments"];
@@ -198,7 +251,9 @@ static CDVWKInAppBrowser* instance = nil;
             NSLog(@"clearsessioncache not available below iOS 11.0");
         }
     }
-
+    //get the value for webview saved
+    webViewSaved = [viewArray objectForKey:name];
+    
     if (self.inAppBrowserViewController == nil) {
         self.inAppBrowserViewController = [[CDVWKInAppBrowserViewController alloc] initWithBrowserOptions: browserOptions andSettings:self.commandDelegate.settings];
         self.inAppBrowserViewController.navigationDelegate = self;
@@ -206,6 +261,20 @@ static CDVWKInAppBrowser* instance = nil;
         if ([self.viewController conformsToProtocol:@protocol(CDVScreenOrientationDelegate)]) {
             self.inAppBrowserViewController.orientationDelegate = (UIViewController <CDVScreenOrientationDelegate>*)self.viewController;
         }
+    }
+    
+    NSArray *subviews = self.inAppBrowserViewController.view.subviews;
+    
+    for(UIView *subview in subviews) {
+        if(subview.tag != 100) {
+            [subview removeFromSuperview];
+        }
+    }
+
+    if (webViewSaved!=nil){
+        [self.inAppBrowserViewController remplaceWebView:webViewSaved];           
+    }else{
+        [self.inAppBrowserViewController createWKWebView];
     }
     
     [self.inAppBrowserViewController showLocationBar:browserOptions.location];
@@ -257,11 +326,13 @@ static CDVWKInAppBrowser* instance = nil;
     }
     _waitForBeforeload = ![_beforeload isEqualToString:@""];
     
-    [self.inAppBrowserViewController navigateTo:url];
-    if (!browserOptions.hidden) {
-        [self show:nil withNoAnimate:browserOptions.hidden];
+    if (webViewSaved==nil || [redirect boolValue]){
+        [self.inAppBrowserViewController navigateTo:url];
     }
+    
+    [viewArray setObject: self.inAppBrowserViewController.webView forKey:name];
 }
+
 
 - (void)show:(CDVInvokedUrlCommand*)command{
     [self show:command withNoAnimate:NO];
@@ -292,7 +363,6 @@ static CDVWKInAppBrowser* instance = nil;
     nav.orientationDelegate = self.inAppBrowserViewController;
     nav.navigationBarHidden = YES;
     nav.modalPresentationStyle = self.inAppBrowserViewController.modalPresentationStyle;
-    nav.presentationController.delegate = self.inAppBrowserViewController;
     
     __weak CDVWKInAppBrowser* weakSelf = self;
     
@@ -309,6 +379,7 @@ static CDVWKInAppBrowser* instance = nil;
                 strongSelf->tmpWindow = [[UIWindow alloc] initWithFrame:frame];
             }
             UIViewController *tmpController = [[UIViewController alloc] init];
+
             [strongSelf->tmpWindow setRootViewController:tmpController];
             [strongSelf->tmpWindow setWindowLevel:UIWindowLevelNormal];
 
@@ -325,7 +396,6 @@ static CDVWKInAppBrowser* instance = nil;
     // Set tmpWindow to hidden to make main webview responsive to touch again
     // https://stackoverflow.com/questions/4544489/how-to-remove-a-uiwindow
     self->tmpWindow.hidden = YES;
-    self->tmpWindow = nil;
 
     if (self.inAppBrowserViewController == nil) {
         NSLog(@"Tried to hide IAB after it was closed.");
@@ -359,10 +429,8 @@ static CDVWKInAppBrowser* instance = nil;
 
 - (void)openInSystem:(NSURL*)url
 {
-    if ([[UIApplication sharedApplication] openURL:url] == NO) {
-        [[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:CDVPluginHandleOpenURLNotification object:url]];
-        [[UIApplication sharedApplication] openURL:url];
-    }
+    [[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:CDVPluginHandleOpenURLNotification object:url]];
+    [[UIApplication sharedApplication] openURL:url];
 }
 
 - (void)loadAfterBeforeload:(CDVInvokedUrlCommand*)command
@@ -498,7 +566,7 @@ static CDVWKInAppBrowser* instance = nil;
  * other code execution is possible.
  */
 - (void)webView:(WKWebView *)theWebView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
-    
+
     NSURL* url = navigationAction.request.URL;
     NSURL* mainDocumentURL = navigationAction.request.mainDocumentURL;
     BOOL isTopLevelNavigation = [url isEqual:mainDocumentURL];
@@ -532,16 +600,14 @@ static CDVWKInAppBrowser* instance = nil;
     }
     
     if(errorMessage != nil){
-        NSLog(errorMessage);
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
                                                       messageAsDictionary:@{@"type":@"loaderror", @"url":[url absoluteString], @"code": @"-1", @"message": errorMessage}];
         [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
     }
     
-    //if is an app store, tel, sms, mailto or geo link, let the system handle it, otherwise it fails to load it
-    NSArray * allowedSchemes = @[@"itms-appss", @"itms-apps", @"tel", @"sms", @"mailto", @"geo"];
-    if ([allowedSchemes containsObject:[url scheme]]) {
+    //if is an app store link, let the system handle it, otherwise it fails to load it
+    if ([[ url scheme] isEqualToString:@"itms-appss"] || [[ url scheme] isEqualToString:@"itms-apps"]) {
         [theWebView stopLoading];
         [self openInSystem:url];
         shouldStart = NO;
@@ -549,7 +615,8 @@ static CDVWKInAppBrowser* instance = nil;
     else if ((self.callbackId != nil) && isTopLevelNavigation) {
         // Send a loadstart event for each top-level navigation (includes redirects).
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
-                                                      messageAsDictionary:@{@"type":@"loadstart", @"url":[url absoluteString]}];
+                                                      messageAsDictionary:@{@"type":@"loadstart", @"url":[url absoluteString], @"name":[theWebView accessibilityHint]}];
+                                                      
         [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
         
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
@@ -558,15 +625,29 @@ static CDVWKInAppBrowser* instance = nil;
     if (useBeforeLoad) {
         _waitForBeforeload = YES;
     }
+    BOOL redirect = NO;
+    if (theWebView.URL.absoluteString != nil && ![urlParam isEqualToString:theWebView.URL.absoluteString] ){
+        redirect = YES;
+    }
     
     if(shouldStart){
-        // Fix GH-417 & GH-424: Handle non-default target attribute
-        // Based on https://stackoverflow.com/a/25713070/777265
-        if (!navigationAction.targetFrame){
-            [theWebView loadRequest:navigationAction.request];
+        if ([allowNavigationExternal intValue] == 1 && redirect == YES){
+            [self openInSystem:url];
             decisionHandler(WKNavigationActionPolicyCancel);
         }else{
-            decisionHandler(WKNavigationActionPolicyAllow);
+            if(redirect && [allowNavigation intValue]== 0){
+                decisionHandler(WKNavigationActionPolicyCancel);
+            }else{
+                // Fix GH-417 & GH-424: Handle non-default target attribute
+                // Based on https://stackoverflow.com/a/25713070/777265
+                if (!navigationAction.targetFrame){
+                    [theWebView loadRequest:navigationAction.request];
+                    decisionHandler(WKNavigationActionPolicyCancel);
+                }else{
+                    decisionHandler(WKNavigationActionPolicyAllow);
+                }
+            }
+
         }
     }else{
         decisionHandler(WKNavigationActionPolicyCancel);
@@ -629,7 +710,7 @@ static CDVWKInAppBrowser* instance = nil;
             }
         }
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
-                                                      messageAsDictionary:@{@"type":@"loadstop", @"url":url}];
+                                                      messageAsDictionary:@{@"type":@"loadstop", @"url":url, @"name":[theWebView accessibilityHint]}];
         [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
         
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
@@ -659,7 +740,8 @@ static CDVWKInAppBrowser* instance = nil;
 {
     if (self.callbackId != nil) {
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
-                                                      messageAsDictionary:@{@"type":@"exit"}];
+                                                    messageAsDictionary:@{@"type":@"exit"}];
+
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
         self.callbackId = nil;
     }
@@ -680,8 +762,7 @@ static CDVWKInAppBrowser* instance = nil;
     // Set tmpWindow to hidden to make main webview responsive to touch again
     // Based on https://stackoverflow.com/questions/4544489/how-to-remove-a-uiwindow
     self->tmpWindow.hidden = YES;
-    self->tmpWindow = nil;
-
+    
     if (IsAtLeastiOSVersion(@"7.0")) {
         if (_previousStatusBarStyle != -1) {
             [[UIApplication sharedApplication] setStatusBarStyle:_previousStatusBarStyle];
@@ -700,7 +781,7 @@ static CDVWKInAppBrowser* instance = nil;
 
 @synthesize currentURL;
 
-CGFloat lastReducedStatusBarHeight = 0.0;
+BOOL viewRenderedAtLeastOnce = FALSE;
 BOOL isExiting = FALSE;
 
 - (id)initWithBrowserOptions: (CDVInAppBrowserOptions*) browserOptions andSettings:(NSDictionary *)settings
@@ -712,7 +793,7 @@ BOOL isExiting = FALSE;
         self.webViewUIDelegate = [[CDVWKInAppBrowserUIDelegate alloc] initWithTitle:[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDisplayName"]];
         [self.webViewUIDelegate setViewController:self];
         
-        [self createViews];
+        //[self createViews];
     }
     
     return self;
@@ -742,9 +823,7 @@ BOOL isExiting = FALSE;
     }
     configuration.applicationNameForUserAgent = userAgent;
     configuration.userContentController = userContentController;
-#if __has_include(<Cordova/CDVWebViewProcessPoolFactory.h>)
-    configuration.processPool = [[CDVWebViewProcessPoolFactory sharedFactory] sharedProcessPool];
-#elif __has_include("CDVWKProcessPoolFactory.h")
+#if __has_include("CDVWKProcessPoolFactory.h")
     configuration.processPool = [[CDVWKProcessPoolFactory sharedFactory] sharedProcessPool];
 #endif
     [configuration.userContentController addScriptMessageHandler:self name:IAB_BRIDGE_NAME];
@@ -762,15 +841,6 @@ BOOL isExiting = FALSE;
         configuration.mediaPlaybackRequiresUserAction = _browserOptions.mediaplaybackrequiresuseraction;
     }
     
-    if (@available(iOS 13.0, *)) {
-        NSString *contentMode = [self settingForKey:@"PreferredContentMode"];
-        if ([contentMode isEqual: @"mobile"]) {
-            configuration.defaultWebpagePreferences.preferredContentMode = WKContentModeMobile;
-        } else if ([contentMode  isEqual: @"desktop"]) {
-            configuration.defaultWebpagePreferences.preferredContentMode = WKContentModeDesktop;
-        }
-        
-    }
     
 
     self.webView = [[WKWebView alloc] initWithFrame:webViewBounds configuration:configuration];
@@ -785,7 +855,7 @@ BOOL isExiting = FALSE;
     if ([self settingForKey:@"OverrideUserAgent"] != nil) {
         self.webView.customUserAgent = [self settingForKey:@"OverrideUserAgent"];
     }
-    
+
     self.webView.clearsContextBeforeDrawing = YES;
     self.webView.clipsToBounds = YES;
     self.webView.contentMode = UIViewContentModeScaleToFill;
@@ -909,7 +979,7 @@ BOOL isExiting = FALSE;
         [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.backButton, fixedSpaceButton, self.forwardButton]];
     }
     
-    self.view.backgroundColor = [UIColor clearColor];
+    self.view.backgroundColor = [UIColor grayColor];
     [self.view addSubview:self.toolbar];
     [self.view addSubview:self.addressLabel];
     [self.view addSubview:self.spinner];
@@ -923,6 +993,66 @@ BOOL isExiting = FALSE;
 - (void) setWebViewFrame : (CGRect) frame {
     NSLog(@"Setting the WebView's frame to %@", NSStringFromCGRect(frame));
     [self.webView setFrame:frame];
+}
+
+-(void) remplaceWebView:(WKWebView*) webview {
+    self.webView = webview;
+    [self.view addSubview:webview];
+    [self.view sendSubviewToBack:webview];
+}
+
+-(void) createWKWebView{
+        WKUserContentController* userContentController = [[WKUserContentController alloc] init];
+        
+        WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
+        configuration.userContentController = userContentController;
+    #if __has_include("CDVWKProcessPoolFactory.h")
+        configuration.processPool = [[CDVWKProcessPoolFactory sharedFactory] sharedProcessPool];
+    #endif
+        [configuration.userContentController addScriptMessageHandler:self name:IAB_BRIDGE_NAME];
+        
+        //WKWebView options
+        configuration.allowsInlineMediaPlayback = _browserOptions.allowinlinemediaplayback;
+        if (IsAtLeastiOSVersion(@"10.0")) {
+            configuration.ignoresViewportScaleLimits = _browserOptions.enableviewportscale;
+            if(_browserOptions.mediaplaybackrequiresuseraction == YES){
+                configuration.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeAll;
+            }else{
+                configuration.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+            }
+        }else{ // iOS 9
+            configuration.mediaPlaybackRequiresUserAction = _browserOptions.mediaplaybackrequiresuseraction;
+        }
+        
+    //CGRect webViewBounds = self.view.bounds;
+        CGRect webViewBounds =  CGRectMake(0, [bottom_px floatValue], CGRectGetWidth(self.view.bounds), CGRectGetHeight(self.view.bounds)-([top_px intValue] + [bottom_px intValue]));
+        
+        self.webView = [[WKWebView alloc] initWithFrame:webViewBounds configuration:configuration];
+        [self setWebViewFrame:webViewBounds];
+        [self.view addSubview:self.webView];
+        [self.view sendSubviewToBack:self.webView];
+
+        self.webView.accessibilityHint = name; // Name of tab
+        self.webView.navigationDelegate = self;
+        self.webView.UIDelegate = self.webViewUIDelegate;
+        self.webView.backgroundColor = [UIColor whiteColor];
+        
+        self.webView.clearsContextBeforeDrawing = YES;
+        self.webView.clipsToBounds = YES;
+        self.webView.contentMode = UIViewContentModeScaleToFill;
+        self.webView.multipleTouchEnabled = YES;
+        self.webView.opaque = YES;
+        self.webView.userInteractionEnabled = YES;
+        self.automaticallyAdjustsScrollViewInsets = YES ;
+        [self.webView setAutoresizingMask:UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleWidth];
+        self.webView.allowsLinkPreview = NO;
+        self.webView.allowsBackForwardNavigationGestures = NO;
+        
+    #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
+       if (@available(iOS 11.0, *)) {
+           [self.webView.scrollView setContentInsetAdjustmentBehavior:UIScrollViewContentInsetAdjustmentNever];
+       }
+    #endif
 }
 
 - (void)setCloseButtonTitle:(NSString*)title : (NSString*) colorString : (int) buttonIndex
@@ -1055,6 +1185,7 @@ BOOL isExiting = FALSE;
 
 - (void)viewDidLoad
 {
+    viewRenderedAtLeastOnce = FALSE;
     [super viewDidLoad];
 }
 
@@ -1067,20 +1198,56 @@ BOOL isExiting = FALSE;
     }
 }
 
+-(void)viewDidLayoutSubviews{
+    NSLog(@"Entra en viewDidLayoutSubviews");
+    CGRect webViewBounds;
+    statusBarHeight = [NSNumber numberWithInt:0];
+    if (IsAtLeastiOSVersion(@"7.0")) {
+        if ([top_px intValue] == 0){
+            statusBarHeight = [NSNumber numberWithDouble:STATUSBAR_HEIGHT];
+        }
+        webViewBounds =  CGRectMake(0, ([top_px floatValue] + [statusBarHeight floatValue]), CGRectGetWidth(self.view.bounds), CGRectGetHeight(self.view.bounds)-([top_px intValue] + [bottom_px intValue] + [statusBarHeight intValue] ));
+    }else{
+        
+        webViewBounds =  CGRectMake(0, ([top_px floatValue]), CGRectGetWidth(self.view.bounds), CGRectGetHeight(self.view.bounds)-([top_px intValue] + [bottom_px intValue]));
+    }
+    [self setWebViewFrame:webViewBounds];
+    self.view.backgroundColor = UIColor.clearColor;
+
+    [super viewDidLayoutSubviews];
+}
+
+
+-(void) touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event{
+    UITouch *touch = [touches anyObject];
+    //location is relative to the current view
+    // do something with the touched point
+    if (touch.view != self.webView) {
+        // Send a loadstart event for each top-level navigation (includes redirects).
+        float indexF;
+        int index;
+        CGPoint coord = [touch locationInView:self.view];
+        indexF = coord.x / (self.view.bounds.size.width / 5);
+        index = ceil(indexF);
+        
+                CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
+                                                      messageAsDictionary:@{@"type":@"tabpressed", @"index": [NSString stringWithFormat:@"{\"x\":%.02f,\"y\":%.02f}", coord.x,coord.y]}];//@"index":[NSNumber numberWithInt:index]}];
+        [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
+        
+        [self.navigationDelegate.commandDelegate sendPluginResult:pluginResult callbackId:self.navigationDelegate.callbackId];
+        
+        
+        
+        //[self dismissViewControllerAnimated:YES completion:nil];
+        
+        
+    }
+    
+}
+
 - (UIStatusBarStyle)preferredStatusBarStyle
 {
-    NSString* statusBarStylePreference = [self settingForKey:@"InAppBrowserStatusBarStyle"];
-    if (statusBarStylePreference && [statusBarStylePreference isEqualToString:@"lightcontent"]) {
-        return UIStatusBarStyleLightContent;
-    } else if (statusBarStylePreference && [statusBarStylePreference isEqualToString:@"darkcontent"]) {
-        if (@available(iOS 13.0, *)) {
-            return UIStatusBarStyleDarkContent;
-        } else {
-            return UIStatusBarStyleDefault;
-        }
-    } else {
-        return UIStatusBarStyleDefault;
-    }
+    return UIStatusBarStyleDefault;
 }
 
 - (BOOL)prefersStatusBarHidden {
@@ -1096,7 +1263,6 @@ BOOL isExiting = FALSE;
     // Run later to avoid the "took a long time" log message.
     dispatch_async(dispatch_get_main_queue(), ^{
         isExiting = TRUE;
-        lastReducedStatusBarHeight = 0.0;
         if ([weakSelf respondsToSelector:@selector(presentingViewController)]) {
             [[weakSelf presentingViewController] dismissViewControllerAnimated:YES completion:nil];
         } else {
@@ -1127,6 +1293,14 @@ BOOL isExiting = FALSE;
 
 - (void)viewWillAppear:(BOOL)animated
 {
+    if (IsAtLeastiOSVersion(@"7.0") && !viewRenderedAtLeastOnce) {
+        viewRenderedAtLeastOnce = TRUE;
+        CGRect viewBounds = [self.webView bounds];
+        viewBounds.origin.y = STATUSBAR_HEIGHT;
+        viewBounds.size.height = viewBounds.size.height - STATUSBAR_HEIGHT;
+        self.webView.frame = viewBounds;
+        [[UIApplication sharedApplication] setStatusBarStyle:[self preferredStatusBarStyle]];
+    }
     [self rePositionViews];
     
     [super viewWillAppear:animated];
@@ -1138,28 +1312,16 @@ BOOL isExiting = FALSE;
 // change that value.
 //
 - (float) getStatusBarOffset {
-    return (float) IsAtLeastiOSVersion(@"7.0") ? [[UIApplication sharedApplication] statusBarFrame].size.height : 0.0;
+    CGRect statusBarFrame = [[UIApplication sharedApplication] statusBarFrame];
+    float statusBarOffset = IsAtLeastiOSVersion(@"7.0") ? MIN(statusBarFrame.size.width, statusBarFrame.size.height) : 0.0;
+    return statusBarOffset;
 }
 
 - (void) rePositionViews {
-    CGRect viewBounds = [self.webView bounds];
-    CGFloat statusBarHeight = [self getStatusBarOffset];
-    
-    // orientation portrait or portraitUpsideDown: status bar is on the top and web view is to be aligned to the bottom of the status bar
-    // orientation landscapeLeft or landscapeRight: status bar height is 0 in but lets account for it in case things ever change in the future
-    viewBounds.origin.y = statusBarHeight;
-    
-    // account for web view height portion that may have been reduced by a previous call to this method
-    viewBounds.size.height = viewBounds.size.height - statusBarHeight + lastReducedStatusBarHeight;
-    lastReducedStatusBarHeight = statusBarHeight;
-    
-    if ((_browserOptions.toolbar) && ([_browserOptions.toolbarposition isEqualToString:kInAppBrowserToolbarBarPositionTop])) {
-        // if we have to display the toolbar on top of the web view, we need to account for its height
-        viewBounds.origin.y += TOOLBAR_HEIGHT;
-        self.toolbar.frame = CGRectMake(self.toolbar.frame.origin.x, statusBarHeight, self.toolbar.frame.size.width, self.toolbar.frame.size.height);
+    if ([_browserOptions.toolbarposition isEqualToString:kInAppBrowserToolbarBarPositionTop]) {
+        [self.webView setFrame:CGRectMake(self.webView.frame.origin.x, TOOLBAR_HEIGHT, self.webView.frame.size.width, self.webView.frame.size.height)];
+        [self.toolbar setFrame:CGRectMake(self.toolbar.frame.origin.x, [self getStatusBarOffset], self.toolbar.frame.size.width, self.toolbar.frame.size.height)];
     }
-    
-    self.webView.frame = viewBounds;
 }
 
 // Helper function to convert hex color string to UIColor
@@ -1174,6 +1336,8 @@ BOOL isExiting = FALSE;
 }
 
 #pragma mark WKNavigationDelegate
+
+
 
 - (void)webView:(WKWebView *)theWebView didStartProvisionalNavigation:(WKNavigation *)navigation{
     
@@ -1261,7 +1425,7 @@ BOOL isExiting = FALSE;
     return YES;
 }
 
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+- (NSUInteger)supportedInterfaceOrientations
 {
     if ((self.orientationDelegate != nil) && [self.orientationDelegate respondsToSelector:@selector(supportedInterfaceOrientations)]) {
         return [self.orientationDelegate supportedInterfaceOrientations];
@@ -1270,23 +1434,17 @@ BOOL isExiting = FALSE;
     return 1 << UIInterfaceOrientationPortrait;
 }
 
-- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation
 {
-    [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context)
-    {
-        [self rePositionViews];
-    } completion:^(id<UIViewControllerTransitionCoordinatorContext> context)
-    {
-
-    }];
-
-    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    if ((self.orientationDelegate != nil) && [self.orientationDelegate respondsToSelector:@selector(shouldAutorotateToInterfaceOrientation:)]) {
+        //return [self.orientationDelegate shouldAutorotateToInterfaceOrientation:interfaceOrientation];
+        return NO;
+    }
+    
+    return YES;
 }
 
-#pragma mark UIAdaptivePresentationControllerDelegate
-
-- (void)presentationControllerWillDismiss:(UIPresentationController *)presentationController {
-    isExiting = TRUE;
-}
 
 @end //CDVWKInAppBrowserViewController
+
+
